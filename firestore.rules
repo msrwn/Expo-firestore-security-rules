@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return userDoc().role == "admin";
+    }
+
+    function isMember() {
+      return userDoc().role == "member";
+    }
+
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /messages/{messageId} {
+      /*
+        CREATE:
+        - Members: only their org + cannot spoof senderId
+        - Admins: any org but still cannot spoof senderId
+        - Deleted users are blocked
+        - Schema is enforced
+      */
+      allow create: if isSignedIn()
+        && userExists()
+        && request.resource.data.keys().hasOnly([
+          "text",
+          "senderId",
+          "org",
+          "timestamp"
+        ])
+        && request.resource.data.senderId == request.auth.uid
+        && (
+          request.resource.data.org == userDoc().org
+          || isAdmin()
+        );
+
+      allow read: if isSignedIn()
+
+
+      // No updates or deletes allowed
+      allow update, delete: if false;
+    }
+  }
+}
